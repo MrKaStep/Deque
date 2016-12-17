@@ -9,11 +9,11 @@ using std::cin;
 using std::endl;
 
 int main() {
-    Deque<int> d(4);
-    Deque<int>::iterator it = d.begin();
-    const Deque<int>::const_iterator cit = d.cbegin();
-    *it = 1;
-    cout << *cit;
+    Deque<int> d;
+    d.push_back(2);
+    d.push_front(1);
+    auto it = d.crbegin();
+    cout << *it;
     system("pause");
     return 0;
 }

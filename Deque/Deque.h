@@ -15,17 +15,20 @@ template<class T>
 class Deque;
 
 template<bool isConst, class T>
-class DequeIterator : std::iterator<std::random_access_iterator_tag, T> {
+class DequeIterator : 
+    public std::iterator<std::random_access_iterator_tag,
+                         T,
+                         ptrdiff_t,
+                         typename std::conditional<isConst, const T*, T*>::type,
+                         typename std::conditional<isConst, const T&, T&>::type> {
     friend class Deque<T>;
 private:
-    typedef typename std::conditional<isConst, const T*, T*>::type Ptr;
-    typedef typename std::conditional<isConst, const T&, T&>::type Ref;
-    Ptr current;
-    Ptr first;
-    Ptr last;
-    Ptr bufferFirst;
-    Ptr bufferLast;
-    DequeIterator(Ptr current, Ptr first, Ptr last, Ptr bufferFirst, Ptr bufferLast) :
+    pointer current;
+    pointer first;
+    pointer last;
+    pointer bufferFirst;
+    pointer bufferLast;
+    DequeIterator(pointer current, pointer first, pointer last, pointer bufferFirst, pointer bufferLast) :
             current(current),
             first(first),
             last(last),
@@ -39,13 +42,18 @@ public:
             bufferFirst(nullptr),
             bufferLast(nullptr) {}
     DequeIterator(const DequeIterator<isConst, T>& another) = default;
-        
-    Ptr operator->() const {
+    DequeIterator(const DequeIterator<isConst ^ true, T>& another) :
+            current(another.current),
+            first(another.first),
+            last(another.last),
+            bufferFirst(another.bufferFirst),
+            bufferLast(another.bufferLast){}
+    pointer operator->() const {
         if (current == last)
             throw std::exception("Deque iterator is not dereferencalbe");
         return current;
     }
-    Ref operator*() const {
+    reference operator*() const {
         return *current;
     }
     DequeIterator<isConst, T>& operator++() {
@@ -105,10 +113,10 @@ public:
         return (current + (current >= first ? 0 : bufferFirst - bufferLast))
             - (another.current + (another.current >= first ? 0 : bufferFirst - bufferLast));
     }
-    Ref operator[](int offset) {
+    reference operator[](int offset) {
         return *(*this + offset);
     }
-    const Ref operator[](int offset) const {
+    const reference operator[](int offset) const {
         return *(*this + offset);
     }
     bool operator<(const DequeIterator<isConst, T>& another) const {
@@ -144,11 +152,42 @@ const DequeIterator<isConst, T> operator-(ptrdiff_t offset, const DequeIterator<
 template<class T>
 class Deque {
 private:
-    T* a_;
-    T* first;
-    T* last;
+    typedef T* pointer;
+    typedef T& reference;
+
+    pointer a_;
+    pointer first;
+    pointer last;
     size_t capacity_;
     size_t size_;
+
+    void move_(pointer dest) {
+        if (first <= last)
+            memcpy(dest, first, (last - first) * sizeof(T));
+        else {
+            memcpy(dest, first, (a_ + capacity_ - first) * sizeof(T));
+            memcpy(dest + (a_ + capacity_ - first), a_, (last - a_) * sizeof(T));
+        }
+        delete[] a_;
+        a_ = dest;
+        first = a_;
+        last = a_ + size_;
+    }
+
+    void grow_() {
+        pointer buffer = new T[std::max(static_cast<size_t>(1), capacity_ << 1)];
+        move_(buffer);
+        capacity_ = std::max(static_cast<size_t>(1), capacity_ << 1);
+    }
+    void shrink_() {
+        if (capacity_ <= 4)
+            return;
+        pointer buffer = new T[capacity_ >> 1];
+        move_(buffer);
+        capacity_ >>= 1;
+    }
+
+
 public:
     typedef DequeIterator<false, T> iterator;
     typedef DequeIterator<true, T> const_iterator;
@@ -168,5 +207,94 @@ public:
             size_(another.size_) {
         memcpy(a_, another.a_, capacity_*sizeof(T));
     }
-
+    const iterator begin() {
+        return iterator(first, first, last, a_, a_ + capacity_);
+    }
+    const const_iterator begin() const {
+        return const_iterator(first, first, last, a_, a_ + capacity_);
+    }
+    const const_iterator cbegin() const {
+        return const_iterator(first, first, last, a_, a_ + capacity_);
+    }
+    const iterator end() {
+        return iterator(last, first, last, a_, a_ + capacity_);
+    }
+    const const_iterator end() const {
+        return const_iterator(last, first, last, a_, a_ + capacity_);
+    }
+    const const_iterator cend() const {
+        return const_iterator(last, first, last, a_, a_ + capacity_);
+    }
+    const reverse_iterator rbegin() {
+        return reverse_iterator(end());
+    }
+    const const_reverse_iterator rbegin() const {
+        return const_reverse_iterator(end());
+    }
+    const const_reverse_iterator crbegin() const {
+        return const_reverse_iterator(end());
+    }
+    const reverse_iterator rend() {
+        return reverse_iterator(begin());
+    }
+    const const_reverse_iterator rend() const {
+        return const_reverse_iterator(begin());
+    }
+    const const_reverse_iterator crend() const {
+        return const_reverse_iterator(begin());
+    }
+    reference operator[](ui32 position) {
+        return begin()[position];
+    }
+    const reference operator[](ui32 position) const {
+        return cbegin()[position];
+    }
+    reference back() {
+        return *rbegin();
+    }
+    const reference back() const {
+        return *crbegin();
+    }
+    reference front() {
+        return *begin();
+    }
+    const reference front() const {
+        return *cbegin();
+    }
+    bool empty() const {
+        return size_ == 0;
+    }
+    size_t size() const {
+        return size_;
+    }
+    size_t capacity() const {
+        return capacity_;
+    }
+    void push_back(const T& value) {
+        if (size_ + 1 == capacity_)
+            grow_();
+        *(last++) = value;
+        if (last == a_ + capacity_)
+            last = a_;
+    }
+    void push_front(const T& value) {
+        if (size_ + 1 == capacity_)
+            grow_();
+        --first;
+        if (first < a_)
+            first = a_ + capacity_ - 1;
+        *first = value;
+    }
+    void pop_back() {
+        if (--last < a_)
+            last = a_ + capacity_ - 1;
+        if (size_ * 4 <= capacity_)
+            shrink_();
+    }
+    void pop_front() {
+        if (++first == a_ + capacity_)
+            first = a_;
+        if (size_ * 4 <= capacity_)
+            shrink();
+    }
 };
