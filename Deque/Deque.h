@@ -5,6 +5,9 @@
 #include <exception>
 #include <assert.h>
 #include <algorithm>
+#include <cstring>
+#include <stdexcept>
+#include <iostream>
 
 #ifndef UI32
 #define UI32
@@ -18,10 +21,15 @@ template<bool isConst, class T>
 class DequeIterator : 
     public std::iterator<std::random_access_iterator_tag,
                          T,
-                         ptrdiff_t,
+                         std::ptrdiff_t,
                          typename std::conditional<isConst, const T*, T*>::type,
                          typename std::conditional<isConst, const T&, T&>::type> {
+public:
+    typedef typename std::conditional<isConst, const T*, T*>::type pointer;
+    typedef typename std::conditional<isConst, const T&, T&>::type reference;
+
     friend class Deque<T>;
+    friend class DequeIterator<true, T>;
 private:
     pointer current;
     pointer first;
@@ -50,68 +58,70 @@ public:
             bufferLast(another.bufferLast){}
     pointer operator->() const {
         if (current == last)
-            throw std::exception("Deque iterator is not dereferencalbe");
+            throw std::runtime_error("Deque iterator is not dereferencalbe");
         return current;
     }
     reference operator*() const {
+        if (current == last)
+            throw std::runtime_error("Deque iterator is not dereferencalbe");
         return *current;
     }
     DequeIterator<isConst, T>& operator++() {
         if (current == last)
-            throw std::exception("Deque iterator is not dereferencalbe");
-        if (current == last)
-            throw std::exception("Deque iterator is not incrementable");
-        current = (current == bufferLast ? bufferFirst : current + 1);
+            throw std::runtime_error("Deque iterator is not incrementable");
+        if (++current == bufferLast)
+            current = bufferFirst;
         return *this;
     }
     DequeIterator<isConst, T> operator++(int) {
-        if (current == last)
-            throw std::exception("Deque iterator is not incrementable");
         DequeIterator<isConst, T> ans(*this);
-        current = (current == bufferLast ? bufferFirst : current + 1);
+        operator++();
         return ans;
     }
     DequeIterator<isConst, T>& operator--() {
         if (current == first)
-            throw std::exception("Deque iterator is not decrementable");
-        current = (current == bufferFirst ? bufferLast : current - 1);
+            throw std::runtime_error("Deque iterator is not decrementable");
+        if (--current < bufferFirst)
+            current = bufferLast - 1;
         return *this;
     }
     DequeIterator<isConst, T> operator--(int) {
-        if (current == first)
-            throw std::exception("Deque iterator is not decrementable");
         DequeIterator<isConst, T> ans(*this);
-        current = (current == bufferFirst ? bufferLast : current - 1);
+        operator--();
         return ans;
     }
-    DequeIterator<isConst, T>& operator+=(ptrdiff_t offset) {
+    DequeIterator<isConst, T>& operator+=(std::ptrdiff_t offset) {
         if (offset > 0) {
             if (offset > (current < last ? last - current : bufferLast - current + last - bufferFirst))
-                throw std::exception("Deque iterator out of range");
+                throw std::runtime_error("Deque iterator out of range");
             current += offset - (offset < bufferLast - current ? 0 : bufferLast - bufferFirst);
         } else {
             if(offset < (current > first ? first - current : bufferFirst - current + first - bufferLast))
-                throw std::exception("Deque iterator out of range");
+                throw std::runtime_error("Deque iterator out of range");
             current += offset + (offset < bufferFirst - current ? bufferLast - bufferFirst : 0);
         }
         return *this;
     }
-    DequeIterator<isConst, T>& operator-=(ptrdiff_t offset) {
+    DequeIterator<isConst, T>& operator-=(std::ptrdiff_t offset) {
         return operator+=(-offset);
     }
-    const DequeIterator<isConst, T> operator+(ptrdiff_t offset) const {
+    const DequeIterator<isConst, T> operator+(std::ptrdiff_t offset) const {
         DequeIterator<isConst, T> ans(*this);
         ans += offset;
         return ans;
     }
-    const DequeIterator<isConst, T> operator-(ptrdiff_t offset) const {
+    const DequeIterator<isConst, T> operator-(std::ptrdiff_t offset) const {
         DequeIterator<isConst, T> ans(*this);
         ans -= offset;
         return ans;
     }
-    ptrdiff_t operator-(const DequeIterator<isConst, T>& another) const {
-        return (current + (current >= first ? 0 : bufferFirst - bufferLast))
-            - (another.current + (another.current >= first ? 0 : bufferFirst - bufferLast));
+    std::ptrdiff_t operator-(const DequeIterator<isConst, T>& another) const {
+        return (current >= first 
+                ? current - first 
+                : (current - bufferFirst) + (bufferLast - first))
+            -  (another.current >= first 
+                ? another.current - first 
+                : (another.current - bufferFirst) + (bufferLast - first));
     }
     reference operator[](int offset) {
         return *(*this + offset);
@@ -134,16 +144,19 @@ public:
     bool operator==(const DequeIterator<isConst, T>& another) const {
         return !(*this < another) && !(another < *this);
     }
+    bool operator!=(const DequeIterator<isConst, T>& another) const {
+        return *this < another || another < *this;
+    }
 };
 
 template<bool isConst, class T>
-const DequeIterator<isConst, T> operator+(ptrdiff_t offset, const DequeIterator<isConst, T>& iter) {
+const DequeIterator<isConst, T> operator+(std::ptrdiff_t offset, const DequeIterator<isConst, T>& iter) {
     DequeIterator<isConst, T> ans(iter);
     ans += offset;
     return ans;
 }
 template<bool isConst, class T>
-const DequeIterator<isConst, T> operator-(ptrdiff_t offset, const DequeIterator<isConst, T>& iter) {
+const DequeIterator<isConst, T> operator-(std::ptrdiff_t offset, const DequeIterator<isConst, T>& iter) {
     DequeIterator<isConst, T> ans(iter);
     ans -= offset;
     return ans;
@@ -207,58 +220,58 @@ public:
             size_(another.size_) {
         memcpy(a_, another.a_, capacity_*sizeof(T));
     }
-    const iterator begin() {
+    iterator begin() {
         return iterator(first, first, last, a_, a_ + capacity_);
     }
-    const const_iterator begin() const {
+    const_iterator begin() const {
         return const_iterator(first, first, last, a_, a_ + capacity_);
     }
-    const const_iterator cbegin() const {
+    const_iterator cbegin() const {
         return const_iterator(first, first, last, a_, a_ + capacity_);
     }
-    const iterator end() {
+    iterator end() {
         return iterator(last, first, last, a_, a_ + capacity_);
     }
-    const const_iterator end() const {
+    const_iterator end() const {
         return const_iterator(last, first, last, a_, a_ + capacity_);
     }
-    const const_iterator cend() const {
+    const_iterator cend() const {
         return const_iterator(last, first, last, a_, a_ + capacity_);
     }
-    const reverse_iterator rbegin() {
+    reverse_iterator rbegin() {
         return reverse_iterator(end());
     }
-    const const_reverse_iterator rbegin() const {
+    const_reverse_iterator rbegin() const {
         return const_reverse_iterator(end());
     }
-    const const_reverse_iterator crbegin() const {
+    const_reverse_iterator crbegin() const {
         return const_reverse_iterator(end());
     }
-    const reverse_iterator rend() {
+    reverse_iterator rend() {
         return reverse_iterator(begin());
     }
-    const const_reverse_iterator rend() const {
+    const_reverse_iterator rend() const {
         return const_reverse_iterator(begin());
     }
-    const const_reverse_iterator crend() const {
+    const_reverse_iterator crend() const {
         return const_reverse_iterator(begin());
     }
     reference operator[](ui32 position) {
         return begin()[position];
     }
-    const reference operator[](ui32 position) const {
+    const T& operator[](ui32 position) const {
         return cbegin()[position];
     }
     reference back() {
         return *rbegin();
     }
-    const reference back() const {
+    const T& back() const {
         return *crbegin();
     }
     reference front() {
         return *begin();
     }
-    const reference front() const {
+    const T& front() const {
         return *cbegin();
     }
     bool empty() const {
@@ -276,6 +289,7 @@ public:
         *(last++) = value;
         if (last == a_ + capacity_)
             last = a_;
+        ++size_;
     }
     void push_front(const T& value) {
         if (size_ + 1 == capacity_)
@@ -284,17 +298,20 @@ public:
         if (first < a_)
             first = a_ + capacity_ - 1;
         *first = value;
+        ++size_;
     }
     void pop_back() {
         if (--last < a_)
             last = a_ + capacity_ - 1;
+        --size_;
         if (size_ * 4 <= capacity_)
             shrink_();
     }
     void pop_front() {
         if (++first == a_ + capacity_)
             first = a_;
+        --size_;
         if (size_ * 4 <= capacity_)
-            shrink();
+            shrink_();
     }
 };
